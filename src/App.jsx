@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import ImageCanvas from './components/ImageCanvas'
 import ImageThumbnails from './components/ImageThumbnails'
 import ImageUpload from './components/ImageUpload'
@@ -12,22 +12,44 @@ function App() {
   const [processing, setProcessing] = useState(false)
   const [results, setResults] = useState([])
 
+  // Clear localStorage on app load
+  useEffect(() => {
+    const clearStorage = () => {
+      const keys = Object.keys(localStorage)
+      keys.forEach(key => {
+        if (key.startsWith('hcg_image_')) {
+          localStorage.removeItem(key)
+        }
+      })
+    }
+    clearStorage()
+  }, [])
+
   const handleImageUpload = useCallback((files) => {
+    // Clear localStorage when uploading new images
+    const keys = Object.keys(localStorage)
+    keys.forEach(key => {
+      if (key.startsWith('hcg_image_')) {
+        localStorage.removeItem(key)
+      }
+    })
+
     const newImages = Array.from(files).map((file, index) => ({
       id: Date.now() + index,
       file,
       url: URL.createObjectURL(file),
       roi: null,
       dpo: null,
+      croppedImageUrl: null,
       rgb: null,
     }))
     setImages(newImages)
     setSelectedImageIndex(0)
   }, [])
 
-  const handleROIUpdate = useCallback((index, roi) => {
+  const handleROIUpdate = useCallback((index, roi, croppedImageUrl) => {
     setImages(prev => prev.map((img, i) => 
-      i === index ? { ...img, roi } : img
+      i === index ? { ...img, roi, croppedImageUrl: croppedImageUrl || img.croppedImageUrl } : img
     ))
   }, [])
 
@@ -37,8 +59,14 @@ function App() {
     ))
   }, [])
 
+  const handleResetROI = useCallback((index) => {
+    setImages(prev => prev.map((img, i) => 
+      i === index ? { ...img, roi: null, croppedImageUrl: null } : img
+    ))
+  }, [])
+
   const canStart = images.length > 0 && 
-    images.every(img => img.roi !== null && img.dpo !== null)
+    images.every(img => img.croppedImageUrl !== null && img.dpo !== null)
 
   const handleStart = async () => {
     if (!canStart) return
@@ -50,7 +78,8 @@ function App() {
     
     for (let i = 0; i < sortedImages.length; i++) {
       const image = sortedImages[i]
-      const rgb = await processImage(image.url, image.roi)
+      // Use cropped image for analysis - process entire cropped image (no ROI needed)
+      const rgb = await processImage(image.croppedImageUrl)
       
       image.rgb = rgb
       
@@ -89,8 +118,9 @@ function App() {
           <div className="main-panel">
             <ImageCanvas
               image={selectedImage}
-              onROIUpdate={(roi) => handleROIUpdate(selectedImageIndex, roi)}
+              onROIUpdate={(roi, croppedImageUrl) => handleROIUpdate(selectedImageIndex, roi, croppedImageUrl)}
               onDPOUpdate={(dpo) => handleDPOUpdate(selectedImageIndex, dpo)}
+              onResetROI={() => handleResetROI(selectedImageIndex)}
             />
             
             <ImageThumbnails

@@ -10,10 +10,10 @@ function ImageThumbnails({ images, selectedIndex, onSelect }) {
         {images.map((image, index) => (
           <div
             key={image.id}
-            className={`thumbnail ${index === selectedIndex ? 'selected' : ''} ${!image.roi || !image.dpo ? 'incomplete' : ''}`}
+            className={`thumbnail ${index === selectedIndex ? 'selected' : ''} ${!image.croppedImageUrl || !image.dpo ? 'incomplete' : ''}`}
             onClick={() => onSelect(index)}
           >
-            <img src={image.url} alt={`Image ${index + 1}`} />
+            <img src={image.croppedImageUrl || image.url} alt={`Image ${index + 1}`} />
             <div className="thumbnail-info">
               <div className="thumbnail-label">Image {index + 1}</div>
               {image.dpo !== null && (
@@ -25,7 +25,7 @@ function ImageThumbnails({ images, selectedIndex, onSelect }) {
                 </div>
               )}
               <div className="thumbnail-status">
-                {image.roi && image.dpo !== null ? '✓ Ready' : '⚠ Incomplete'}
+                {image.croppedImageUrl && image.dpo !== null ? '✓ Ready' : '⚠ Incomplete'}
               </div>
             </div>
           </div>

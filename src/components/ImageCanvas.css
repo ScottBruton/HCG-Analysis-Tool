@@ -132,6 +132,22 @@
   cursor: not-allowed;
 }
 
+.reset-button {
+  padding: 6px 16px;
+  font-size: 0.9rem;
+  background-color: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  font-weight: 600;
+}
+
+.reset-button:hover {
+  background-color: #f57c00;
+}
+
 .canvas-wrapper {
   width: 100%;
   min-height: 200px;

@@ -1,38 +1,26 @@
 /**
- * Process an image to detect the test line within ROI and calculate average RGB
- * IMPORTANT: This function uses ONLY the original image data.
- * The overlay paint is purely visual and does NOT affect the analysis.
+ * Process an image to detect the test line and calculate average RGB
+ * For cropped images, processes the entire image (no ROI needed)
  * 
- * @param {string} imageUrl - URL of the original image (NOT the canvas with overlay)
- * @param {Object} roi - Region of Interest {x, y, width, height} in original image coordinates
+ * @param {string} imageUrl - URL of the image (cropped image)
  * @returns {Promise<Object>} Average RGB values {r, g, b}
  */
-export async function processImage(imageUrl, roi) {
+export async function processImage(imageUrl) {
   return new Promise((resolve, reject) => {
-    // Create a fresh image from the original URL - no overlay involved
     const img = new Image()
     img.crossOrigin = 'anonymous'
     
     img.onload = () => {
-      // Create a new canvas and draw ONLY the original image
-      // This ensures no overlay paint affects the analysis
+      // Create a new canvas and draw the image
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       
       canvas.width = img.width
       canvas.height = img.height
-      // Draw ONLY the original image - no overlay, no paint
       ctx.drawImage(img, 0, 0)
       
-      // Get image data from the ROI region
-      // ROI coordinates are already in original image dimensions
-      // This extracts ONLY pixels from the original image, not the overlay
-      const imageData = ctx.getImageData(
-        Math.round(roi.x),
-        Math.round(roi.y),
-        Math.round(roi.width),
-        Math.round(roi.height)
-      )
+      // Get image data from the entire image (cropped image is already the ROI)
+      const imageData = ctx.getImageData(0, 0, img.width, img.height)
       
       // Convert to grayscale, detect line edges, and extract line pixels
       const lineData = detectLineAndExtractPixels(imageData)
