@@ -13,27 +13,40 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
   const [history, setHistory] = useState([]) // For undo
   const [dpo, setDPO] = useState(image?.dpo?.toString() || '')
   const lastImageIdRef = useRef(null)
+  const lastCroppedUrlRef = useRef(null)
   const savedROIRef = useRef(null) // Store saved ROI for restoration after canvas is drawn
 
   useEffect(() => {
-    if (image && image.id !== lastImageIdRef.current) {
-      // Only load when image actually changes (different ID)
-      lastImageIdRef.current = image.id
+    if (image) {
+      // Check if image ID or croppedImageUrl changed
+      const imageIdChanged = image.id !== lastImageIdRef.current
+      const croppedUrlChanged = image.croppedImageUrl !== lastCroppedUrlRef.current
       
-      // Clear painted pixels when switching images
-      setPaintedPixels(new Set())
-      savedROIRef.current = null
-      
-      // Restore DPO if exists
-      setDPO(image.dpo?.toString() || '')
-      
-      // Restore painted pixels if ROI exists and no cropped image yet
-      if (image.roi && image.roi.paintedPixels && !image.croppedImageUrl) {
-        savedROIRef.current = image.roi
+      if (imageIdChanged) {
+        // Image changed - reset everything
+        lastImageIdRef.current = image.id
+        lastCroppedUrlRef.current = image.croppedImageUrl
+        
+        // Clear painted pixels when switching images
+        setPaintedPixels(new Set())
+        savedROIRef.current = null
+        
+        // Restore DPO if exists
+        setDPO(image.dpo?.toString() || '')
+        
+        // Restore painted pixels if ROI exists and no cropped image yet
+        if (image.roi && image.roi.paintedPixels && !image.croppedImageUrl) {
+          savedROIRef.current = image.roi
+        }
+        
+        setHistory([])
+      } else if (croppedUrlChanged) {
+        // Same image but croppedImageUrl changed (ROI was saved)
+        lastCroppedUrlRef.current = image.croppedImageUrl
+        setPaintedPixels(new Set()) // Clear overlay since we have cropped image
       }
       
-      setHistory([])
-      // Wait for container to be rendered and sized
+      // Always redraw when image or croppedImageUrl changes
       setTimeout(() => {
         drawImage()
       }, 0)
@@ -60,7 +73,7 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
     const canvas = canvasRef.current
     const overlayCanvas = overlayCanvasRef.current
     const container = containerRef.current
-    if (!canvas || !overlayCanvas || !image || !container) return
+    if (!canvas || !image || !container) return
 
     // Check if container has width
     const containerWidth = container.clientWidth
@@ -71,7 +84,6 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
     }
 
     const ctx = canvas.getContext('2d')
-    const overlayCtx = overlayCanvas.getContext('2d')
     const img = new Image()
     
     img.onload = () => {
@@ -82,14 +94,10 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
       // Set canvas internal resolution (for drawing)
       canvas.width = containerWidth
       canvas.height = canvasHeight
-      overlayCanvas.width = containerWidth
-      overlayCanvas.height = canvasHeight
       
       // Set explicit CSS dimensions to stretch canvas to image size
       canvas.style.width = `${containerWidth}px`
       canvas.style.height = `${canvasHeight}px`
-      overlayCanvas.style.width = `${containerWidth}px`
-      overlayCanvas.style.height = `${canvasHeight}px`
       
       // Update container height to match image aspect ratio
       container.style.height = `${canvasHeight}px`
@@ -98,36 +106,45 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
       // Draw the image (cropped if exists, otherwise original)
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
       
-      // Clear overlay canvas first
-      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
-      
-      // Only show overlay if we have ROI but no cropped image yet (still in drawing mode)
-      if (!image.croppedImageUrl && savedROIRef.current && savedROIRef.current.paintedPixels && image.id === lastImageIdRef.current) {
-        const savedROI = savedROIRef.current
+      // Only handle overlay if we don't have a cropped image
+      if (!image.croppedImageUrl && overlayCanvas) {
+        overlayCanvas.width = containerWidth
+        overlayCanvas.height = canvasHeight
+        overlayCanvas.style.width = `${containerWidth}px`
+        overlayCanvas.style.height = `${canvasHeight}px`
         
-        if (savedROI.canvasWidth && savedROI.canvasHeight) {
-          // Scale painted pixels to current canvas size
-          const scaleX_pixels = canvas.width / savedROI.canvasWidth
-          const scaleY_pixels = canvas.height / savedROI.canvasHeight
+        const overlayCtx = overlayCanvas.getContext('2d')
+        // Clear overlay canvas first
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+        
+        // Only show overlay if we have ROI but no cropped image yet (still in drawing mode)
+        if (savedROIRef.current && savedROIRef.current.paintedPixels && image.id === lastImageIdRef.current) {
+          const savedROI = savedROIRef.current
           
-          const scaledPixels = new Set()
-          savedROI.paintedPixels.forEach(pixelKey => {
-            const [x, y] = pixelKey.split(',').map(Number)
-            const newX = Math.round(x * scaleX_pixels)
-            const newY = Math.round(y * scaleY_pixels)
-            if (newX >= 0 && newX < canvas.width && newY >= 0 && newY < canvas.height) {
-              scaledPixels.add(`${newX},${newY}`)
-            }
-          })
-          setPaintedPixels(scaledPixels)
-        } else {
-          setPaintedPixels(new Set(savedROI.paintedPixels))
+          if (savedROI.canvasWidth && savedROI.canvasHeight) {
+            // Scale painted pixels to current canvas size
+            const scaleX_pixels = canvas.width / savedROI.canvasWidth
+            const scaleY_pixels = canvas.height / savedROI.canvasHeight
+            
+            const scaledPixels = new Set()
+            savedROI.paintedPixels.forEach(pixelKey => {
+              const [x, y] = pixelKey.split(',').map(Number)
+              const newX = Math.round(x * scaleX_pixels)
+              const newY = Math.round(y * scaleY_pixels)
+              if (newX >= 0 && newX < canvas.width && newY >= 0 && newY < canvas.height) {
+                scaledPixels.add(`${newX},${newY}`)
+              }
+            })
+            setPaintedPixels(scaledPixels)
+          } else {
+            setPaintedPixels(new Set(savedROI.paintedPixels))
+          }
         }
       }
     }
     
     img.onerror = () => {
-      console.error('Failed to load image:', image.url)
+      console.error('Failed to load image:', image.croppedImageUrl || image.url)
     }
     
     // Load the image - cropped if exists, otherwise original
@@ -222,10 +239,6 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
     const value = e.target.value
     setDPO(value)
     onDPOUpdate(value)
-    // Save DPO to localStorage
-    if (image) {
-      saveImageData(image.id, { dpo: value ? parseInt(value) : null })
-    }
   }
 
   const handleClearROI = () => {
@@ -370,7 +383,11 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
                 <button onClick={handleClearROI} className="clear-button">
                   Clear
                 </button>
-                <button onClick={handleSaveROI} disabled={paintedPixels.size === 0} className="save-button">
+                <button 
+                  onClick={handleSaveROI} 
+                  disabled={paintedPixels.size === 0 || !dpo || dpo.trim() === ''} 
+                  className="save-button"
+                >
                   Save ROI
                 </button>
               </>
