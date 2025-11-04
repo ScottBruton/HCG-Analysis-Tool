@@ -3,7 +3,7 @@
  * For cropped images, processes the entire image (no ROI needed)
  * 
  * @param {string} imageUrl - URL of the image (cropped image)
- * @returns {Promise<Object>} Average RGB values {r, g, b}
+ * @returns {Promise<Object>} Average RGB values {r, g, b, grayscale, linePixels}
  */
 export async function processImage(imageUrl) {
   return new Promise((resolve, reject) => {
@@ -26,7 +26,7 @@ export async function processImage(imageUrl) {
       const lineData = detectLineAndExtractPixels(imageData)
       
       // Calculate average RGB from the detected line pixels
-      const avgRGB = calculateAverageRGB(lineData)
+      const avgRGB = calculateAverageRGB(lineData.pixels, lineData.coordinates)
       
       resolve(avgRGB)
     }
@@ -71,8 +71,8 @@ function detectLineAndExtractPixels(imageData) {
     }
   }
   
-  // Step 2: Find threshold - use Otsu's method or simple percentile
-  // For simplicity, use the median as a threshold point
+  // Step 2: Find threshold - use percentile approach to find darkest pixels
+  // Collect all grayscale values
   const allGrays = []
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -80,10 +80,19 @@ function detectLineAndExtractPixels(imageData) {
     }
   }
   allGrays.sort((a, b) => a - b)
-  const median = allGrays[Math.floor(allGrays.length / 2)]
-  // Line is darker than background, so use pixels darker than median
-  // Adjust threshold to be more selective (darker threshold)
-  const threshold = median * 0.7 // Adjust this factor if needed
+  
+  // Use the 15th percentile (darkest 15%) as threshold
+  // This should capture the line which is darker than the white background
+  // Adjust percentile if needed - lower values = more selective (darker threshold)
+  const percentileIndex = Math.floor(allGrays.length * 0.15)
+  let threshold = allGrays[percentileIndex] || allGrays[0]
+  
+  // If threshold is too high (close to white), use a more aggressive threshold
+  // Most background should be > 200, so if threshold > 180, use a lower percentile
+  if (threshold > 180) {
+    const lowerPercentileIndex = Math.floor(allGrays.length * 0.05) // Use 5th percentile
+    threshold = allGrays[lowerPercentileIndex] || threshold
+  }
   
   // Step 3: Find the largest connected dark region (the line)
   const visited = Array(height).fill(null).map(() => Array(width).fill(false))
@@ -107,8 +116,10 @@ function detectLineAndExtractPixels(imageData) {
   }
   
   // Step 4: Extract pixels from the largest region (the line)
+  const lineCoordinates = []
   largestRegion.forEach(({ x, y }) => {
     linePixels.push(pixelData[y][x])
+    lineCoordinates.push({ x, y })
   })
   
   // If no large region found (line might be very faint), use darkest pixels
@@ -119,16 +130,25 @@ function detectLineAndExtractPixels(imageData) {
       for (let x = 0; x < width; x++) {
         allPixelsWithGray.push({
           gray: grayscaleData[y][x],
-          pixel: pixelData[y][x]
+          pixel: pixelData[y][x],
+          x,
+          y
         })
       }
     }
     allPixelsWithGray.sort((a, b) => a.gray - b.gray)
     const darkestCount = Math.max(1, Math.floor(allPixelsWithGray.length * 0.2))
-    return allPixelsWithGray.slice(0, darkestCount).map(p => p.pixel)
+    const darkestPixels = allPixelsWithGray.slice(0, darkestCount)
+    return {
+      pixels: darkestPixels.map(p => p.pixel),
+      coordinates: darkestPixels.map(p => ({ x: p.x, y: p.y }))
+    }
   }
   
-  return linePixels
+  return {
+    pixels: linePixels,
+    coordinates: lineCoordinates
+  }
 }
 
 /**
@@ -160,9 +180,15 @@ function floodFill(startX, startY, width, height, grayscaleData, visited, thresh
 /**
  * Calculate average RGB from pixel data
  */
-function calculateAverageRGB(pixels) {
+function calculateAverageRGB(pixels, coordinates) {
   if (pixels.length === 0) {
-    return { r: 0, g: 0, b: 0 }
+    return { 
+      r: 0, 
+      g: 0, 
+      b: 0, 
+      grayscale: 0,
+      linePixels: []
+    }
   }
   
   let sumR = 0
@@ -175,10 +201,19 @@ function calculateAverageRGB(pixels) {
     sumB += pixel.b
   })
   
+  const avgR = sumR / pixels.length
+  const avgG = sumG / pixels.length
+  const avgB = sumB / pixels.length
+  
+  // Calculate grayscale average using luminance formula
+  const grayscale = avgR * 0.299 + avgG * 0.587 + avgB * 0.114
+  
   return {
-    r: sumR / pixels.length,
-    g: sumG / pixels.length,
-    b: sumB / pixels.length
+    r: avgR,
+    g: avgG,
+    b: avgB,
+    grayscale: grayscale,
+    linePixels: coordinates || []
   }
 }
 

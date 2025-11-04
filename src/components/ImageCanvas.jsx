@@ -4,6 +4,7 @@ import './ImageCanvas.css'
 function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
   const canvasRef = useRef(null)
   const overlayCanvasRef = useRef(null)
+  const detectionCanvasRef = useRef(null)
   const containerRef = useRef(null)
   const imageRef = useRef(null)
   const [isDrawing, setIsDrawing] = useState(false)
@@ -68,6 +69,10 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
   useEffect(() => {
     redrawOverlay()
   }, [paintedPixels])
+
+  useEffect(() => {
+    drawDetectionOverlay()
+  }, [image?.linePixels, image])
 
   const drawImage = () => {
     const canvas = canvasRef.current
@@ -141,6 +146,11 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
           }
         }
       }
+      
+      // Draw detection overlay after image is loaded
+      setTimeout(() => {
+        drawDetectionOverlay()
+      }, 0)
     }
     
     img.onerror = () => {
@@ -162,6 +172,53 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
     paintedPixels.forEach(pixelKey => {
       const [x, y] = pixelKey.split(',').map(Number)
       ctx.fillRect(x, y, 1, 1)
+    })
+  }
+
+  const drawDetectionOverlay = () => {
+    const detectionCanvas = detectionCanvasRef.current
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    if (!detectionCanvas || !canvas || !image || !image.linePixels || image.linePixels.length === 0) {
+      if (detectionCanvas) {
+        const ctx = detectionCanvas.getContext('2d')
+        ctx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height)
+      }
+      return
+    }
+
+    // Get the original image dimensions from the loaded image
+    const img = imageRef.current
+    if (!img) return
+
+    const containerWidth = container.clientWidth
+    if (containerWidth === 0) return
+
+    const scaleX = containerWidth / img.width
+    const canvasHeight = img.height * scaleX
+
+    // Set detection canvas size to match display size
+    detectionCanvas.width = containerWidth
+    detectionCanvas.height = canvasHeight
+    detectionCanvas.style.width = `${containerWidth}px`
+    detectionCanvas.style.height = `${canvasHeight}px`
+
+    const ctx = detectionCanvas.getContext('2d')
+    ctx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height)
+    
+    // Draw detected line pixels in red overlay
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)' // Semi-transparent red
+    
+    // Scale line pixels from original image coordinates to display coordinates
+    const scaleX_pixels = containerWidth / img.width
+    const scaleY_pixels = canvasHeight / img.height
+    
+    image.linePixels.forEach(({ x, y }) => {
+      const scaledX = Math.round(x * scaleX_pixels)
+      const scaledY = Math.round(y * scaleY_pixels)
+      if (scaledX >= 0 && scaledX < containerWidth && scaledY >= 0 && scaledY < canvasHeight) {
+        ctx.fillRect(scaledX, scaledY, 2, 2) // Draw slightly larger for visibility
+      }
     })
   }
 
@@ -405,6 +462,17 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
           ref={canvasRef}
           style={{ position: 'absolute', top: 0, left: 0 }}
         />
+        {/* Detection overlay - shows detected line in red */}
+        <canvas
+          ref={detectionCanvasRef}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            pointerEvents: 'none',
+            zIndex: 2
+          }}
+        />
         {!image.croppedImageUrl && (
           <canvas
             ref={overlayCanvasRef}
@@ -417,7 +485,8 @@ function ImageCanvas({ image, onROIUpdate, onDPOUpdate, onResetROI }) {
               top: 0,
               left: 0,
               cursor: mode === 'paint' ? 'crosshair' : mode === 'erase' ? 'grab' : 'default',
-              pointerEvents: 'auto'
+              pointerEvents: 'auto',
+              zIndex: 3
             }}
           />
         )}

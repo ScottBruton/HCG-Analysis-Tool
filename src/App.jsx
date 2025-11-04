@@ -83,21 +83,23 @@ function App() {
       
       image.rgb = rgb
       
+      // Calculate rate of change using grayscale values
       const rateOfChange = i > 0 
-        ? rgb - processedResults[i - 1].rgb
+        ? rgb.grayscale - processedResults[i - 1].grayscale
         : 0
       
       processedResults.push({
         dpo: image.dpo,
         rgb,
+        grayscale: rgb.grayscale,
         rateOfChange,
       })
     }
 
-    // Update images with RGB values
+    // Update images with RGB values and line pixels
     setImages(prev => prev.map(img => {
       const found = sortedImages.find(si => si.id === img.id)
-      return found ? { ...img, rgb: found.rgb } : img
+      return found ? { ...img, rgb: found.rgb, linePixels: found.rgb.linePixels } : img
     }))
 
     setResults(processedResults)
