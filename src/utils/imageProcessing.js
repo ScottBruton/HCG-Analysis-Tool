@@ -196,64 +196,65 @@ function detectLineAndExtractPixels(imageData) {
     }
   }
   
-  // Step 3: Follow the line vertically and collect pixels
-  // Use a line-following algorithm that can handle faint sections
+  // Step 3: Collect pixels around the detected line center
+  // Use adaptive width based on redness scores (simpler approach without complex edge detection)
   const lineCoordinates = []
   const linePixels = []
   const visited = Array(height).fill(null).map(() => Array(width).fill(false))
   
-  // Line width to collect pixels around center
-  const lineWidth = 3
+  // Maximum width to search from center
+  const maxWidth = 8 // Reasonable width for line detection
   
   for (let y = edgeMargin; y < height - edgeMargin; y++) {
     const centerX = lineCenterX[y]
-    if (centerX === undefined) continue
+    if (centerX === undefined || centerX === null) continue
     
-    // Collect pixels horizontally around the center
-    // Use adaptive threshold based on line strength
+    // Get center redness score
     const centerScore = rednessScores[y][centerX] || 0
-    const threshold = Math.max(1, centerScore * 0.3) // Lower threshold near detected line
+    if (centerScore < 1) continue // Skip if center has no redness
     
-    for (let dx = -lineWidth; dx <= lineWidth; dx++) {
+    // Find actual left and right boundaries based on redness drop-off
+    let leftBound = centerX
+    let rightBound = centerX
+    
+    // Search left from center - find where redness drops significantly
+    for (let dx = 1; dx <= maxWidth; dx++) {
+      const x = centerX - dx
+      if (x < edgeMargin) break
+      
+      const score = rednessScores[y][x] || 0
+      // Stop if score drops below 30% of center OR below absolute threshold of 2
+      if (score < Math.max(2, centerScore * 0.3)) {
+        leftBound = centerX - dx + 1
+        break
+      }
+      leftBound = x
+    }
+    
+    // Search right from center
+    for (let dx = 1; dx <= maxWidth; dx++) {
       const x = centerX + dx
+      if (x >= width - edgeMargin) break
+      
+      const score = rednessScores[y][x] || 0
+      if (score < Math.max(2, centerScore * 0.3)) {
+        rightBound = centerX + dx - 1
+        break
+      }
+      rightBound = x
+    }
+    
+    // Collect pixels between left and right bounds
+    for (let x = leftBound; x <= rightBound; x++) {
       if (x >= edgeMargin && x < width - edgeMargin && !visited[y][x]) {
-        // Check if this pixel is reddish enough
-        const score = rednessScores[y][x]
-        // Use lower threshold for pixels near the line center
-        const distance = Math.abs(dx)
-        const localThreshold = distance <= 1 ? threshold * 0.5 : threshold
+        const score = rednessScores[y][x] || 0
+        // Use adaptive threshold based on center score - be more selective
+        const threshold = Math.max(2, centerScore * 0.25) // Higher threshold to avoid noise
         
-        if (score > localThreshold) {
+        if (score > threshold) {
           visited[y][x] = true
           lineCoordinates.push({ x, y })
           linePixels.push(pixelData[y][x])
-        }
-      }
-    }
-    
-    // Also check for faint continuation - look at adjacent rows
-    if (y < height - edgeMargin - 1) {
-      const nextY = y + 1
-      const nextCenterX = lineCenterX[nextY]
-      if (nextCenterX !== undefined) {
-        // Check pixels between current and next center
-        const startX = Math.min(centerX, nextCenterX) - lineWidth
-        const endX = Math.max(centerX, nextCenterX) + lineWidth
-        const nextCenterScore = rednessScores[nextY][nextCenterX] || 0
-        const nextThreshold = Math.max(1, nextCenterScore * 0.3)
-        
-        for (let x = startX; x <= endX; x++) {
-          if (x >= edgeMargin && x < width - edgeMargin && !visited[nextY][x]) {
-            const score = rednessScores[nextY][x]
-            const distance = Math.abs(x - nextCenterX)
-            const localThreshold = distance <= 1 ? nextThreshold * 0.5 : nextThreshold
-            
-            if (score > localThreshold) {
-              visited[nextY][x] = true
-              lineCoordinates.push({ x, y: nextY })
-              linePixels.push(pixelData[nextY][x])
-            }
-          }
         }
       }
     }
